@@ -6,12 +6,12 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Send, Bot, User, Loader2, Wand2, LineChart, Wrench, AlertTriangle } from 'lucide-react';
 import { WorkflowProgress } from '@/components/WorkflowProgress';
+import { apiClient } from '@/services/apiClient';
+import { websocketClient } from '@/services/websocketClient';
 
 // Conversational agent chat interface for natural language grid management
 // Props: onWorkflowStart?: (workflow) => void
 export default function ConversationalAgent({ onWorkflowStart }) {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
   const [messages, setMessages] = useState([]); // { id, role: 'user'|'agent', text, error?: boolean }
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -45,38 +45,61 @@ export default function ConversationalAgent({ onWorkflowStart }) {
     setTyping(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/agents/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ message: text.trim() })
-      });
+      const response = await apiClient.chatWithAgent(text.trim());
 
-      const json = await res.json();
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.message || 'Agent request failed');
-      }
+      if (response?.success && response?.data) {
+        const data = response.data;
+        
+        if (data.response) {
+          setMessages(prev => [...prev, { 
+            id: `${Date.now()}-agent`, 
+            role: 'agent', 
+            text: data.response 
+          }]);
+        }
 
-      const data = json.data || {};
-      if (data.response) {
-        setMessages(prev => [...prev, { id: `${Date.now()}-agent`, role: 'agent', text: data.response }]);
-      }
-
-      if (data.workflowType) {
-        const workflow = {
-          workflowType: data.workflowType,
-          steps: data.steps || [],
-          results: data.results || null,
-          status: deriveWorkflowStatus(data.steps)
-        };
-        setCurrentWorkflow(workflow);
-        if (typeof onWorkflowStart === 'function') onWorkflowStart(workflow);
+        if (data.workflowType) {
+          const workflow = {
+            workflowType: data.workflowType,
+            steps: data.steps || [],
+            results: data.results || null,
+            status: deriveWorkflowStatus(data.steps),
+            jobId: data.jobId || Date.now().toString()
+          };
+          
+          setCurrentWorkflow(workflow);
+          
+          // Subscribe to workflow updates if we have a jobId
+          if (data.jobId) {
+            websocketClient.subscribeToWorkflow(data.jobId, (update) => {
+              setCurrentWorkflow(prev => ({
+                ...prev,
+                progress: update.progress,
+                currentStep: update.currentStep,
+                status: update.status,
+                results: update.results
+              }));
+            });
+          }
+          
+          if (typeof onWorkflowStart === 'function') {
+            onWorkflowStart(workflow);
+          }
+        } else {
+          setCurrentWorkflow(null);
+        }
       } else {
-        setCurrentWorkflow(null);
+        throw new Error('Invalid response from agent');
       }
     } catch (e) {
+      console.error('Agent chat error:', e);
       setError(e.message || 'Something went wrong');
-      setMessages(prev => [...prev, { id: `${Date.now()}-err`, role: 'agent', text: 'Sorry, I encountered an error. Please try again.', error: true }]);
+      setMessages(prev => [...prev, { 
+        id: `${Date.now()}-err`, 
+        role: 'agent', 
+        text: 'Sorry, I encountered an error. Please try again.', 
+        error: true 
+      }]);
     } finally {
       setIsProcessing(false);
       setTyping(false);

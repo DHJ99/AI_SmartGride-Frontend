@@ -1,4 +1,4 @@
-// Minimal cookie-based auth client with optional dev mock
+// Authentication client for Smart Grid Platform backend
 
 type User = {
   id: string;
@@ -9,10 +9,10 @@ type User = {
   avatar?: string | null;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
-const USE_MOCK = String(import.meta.env.VITE_USE_MOCK_AUTH || '').toLowerCase() === 'true';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+const USE_MOCK = import.meta.env.VITE_USE_MOCK_AUTH === 'true';
 
-// Mock store for dev only (no tokens; simulates cookie session)
+// Mock store for development fallback
 const mockUsers: Record<string, User & { password: string }> = {
   'admin@company.com': {
     id: 'user_1',
@@ -46,12 +46,14 @@ const mockUsers: Record<string, User & { password: string }> = {
 let mockCurrentUser: User | null = null;
 
 async function mockLogin(email: string, password: string): Promise<User> {
+  console.log('Mock login attempt:', email);
   await new Promise((r) => setTimeout(r, 500));
   const user = mockUsers[email];
   if (!user || user.password !== password) {
     throw new Error('Invalid email or password');
   }
   mockCurrentUser = { ...user };
+  console.log('Mock login successful:', mockCurrentUser);
   return mockCurrentUser;
 }
 
@@ -67,41 +69,92 @@ async function mockMe(): Promise<User | null> {
 
 export const authClient = {
   async login(email: string, password: string): Promise<User> {
-    if (USE_MOCK) return mockLogin(email, password);
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data?.message || 'Login failed');
+    console.log('Auth client login called, USE_MOCK:', USE_MOCK);
+    
+    if (USE_MOCK) {
+      return mockLogin(email, password);
     }
-    const me = await this.me();
-    if (!me) throw new Error('Login failed');
-    return me;
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData?.message || `Login failed: ${res.status}`);
+      }
+
+      // After successful login, fetch user info
+      const user = await this.me();
+      if (!user) {
+        throw new Error('Login successful but failed to fetch user info');
+      }
+      
+      return user;
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }
   },
 
   async logout(): Promise<void> {
-    if (USE_MOCK) return mockLogout();
-    const res = await fetch(`${API_BASE}/auth/logout`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error('Logout failed');
+    if (USE_MOCK) {
+      return mockLogout();
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!res.ok) {
+        console.warn('Logout request failed:', res.status);
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Don't throw error for logout failures
+    }
   },
 
   async me(): Promise<User | null> {
-    if (USE_MOCK) return mockMe();
-    const res = await fetch(`${API_BASE}/auth/me`, {
-      method: 'GET',
-      credentials: 'include'
-    });
-    if (res.status === 401) return null;
-    if (!res.ok) throw new Error('Failed to fetch session');
-    const data = (await res.json()) as User;
-    return data ?? null;
+    if (USE_MOCK) {
+      return mockMe();
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      if (res.status === 401) {
+        return null; // Not authenticated
+      }
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch session: ${res.status}`);
+      }
+
+      const data = await res.json();
+      return data?.user || data || null;
+    } catch (error) {
+      console.error('Me endpoint error:', error);
+      return null;
+    }
   }
 };
 

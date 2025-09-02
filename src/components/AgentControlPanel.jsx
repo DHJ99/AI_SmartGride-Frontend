@@ -3,11 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Wand2, Wrench, LineChart, Loader2 } from 'lucide-react';
+import { apiClient } from '@/services/apiClient';
+import { websocketClient } from '@/services/websocketClient';
 
 // Props: { onWorkflowStart?: (workflow) => void, selectedNodeId?: string }
 export default function AgentControlPanel({ onWorkflowStart, selectedNodeId }) {
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
-
   const [activeWorkflow, setActiveWorkflow] = useState(null); // 'optimize' | 'maintenance' | 'patterns'
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -18,40 +18,54 @@ export default function AgentControlPanel({ onWorkflowStart, selectedNodeId }) {
     setActiveWorkflow(type);
     setIsProcessing(true);
 
-    let endpoint = '/api/agents/chat';
-    let payload = {};
-
-    if (type === 'optimize') {
-      endpoint = '/api/agents/optimize';
-      payload = { nodeId: selectedNodeId || null };
-    } else if (type === 'maintenance') {
-      endpoint = '/api/agents/maintenance';
-      payload = { nodeId: selectedNodeId || null };
-    } else if (type === 'patterns') {
-      endpoint = '/api/agents/chat';
-      payload = { message: 'Analyze recent grid patterns and highlight anomalies.' };
-    }
-
     try {
-      const res = await fetch(`${API_BASE}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload)
-      });
-      const json = await res.json();
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.message || 'Workflow request failed');
+      let response;
+      let workflowType;
+
+      if (type === 'optimize') {
+        response = await apiClient.optimizeGrid(selectedNodeId || null);
+        workflowType = 'grid_optimization';
+      } else if (type === 'maintenance') {
+        response = await apiClient.runMaintenance(selectedNodeId || null);
+        workflowType = 'predictive_maintenance';
+      } else if (type === 'patterns') {
+        response = await apiClient.chatWithAgent('Analyze recent grid patterns and highlight anomalies.');
+        workflowType = 'pattern_analysis';
       }
-      const data = json.data || {};
-      const workflow = {
-        workflowType: data.workflowType || type,
-        steps: data.steps || [],
-        results: data.results || null,
-        status: deriveWorkflowStatus(data.steps)
-      };
-      if (typeof onWorkflowStart === 'function') onWorkflowStart(workflow);
+
+      if (response?.success && response?.data) {
+        const data = response.data;
+        const workflow = {
+          workflowType: data.workflowType || workflowType,
+          steps: data.steps || [],
+          results: data.results || null,
+          status: deriveWorkflowStatus(data.steps),
+          jobId: data.jobId || Date.now().toString()
+        };
+
+        // Subscribe to workflow updates if we have a jobId
+        if (data.jobId) {
+          websocketClient.subscribeToWorkflow(data.jobId, (update) => {
+            if (onWorkflowStart) {
+              onWorkflowStart({
+                ...workflow,
+                progress: update.progress,
+                currentStep: update.currentStep,
+                status: update.status,
+                results: update.results
+              });
+            }
+          });
+        }
+
+        if (typeof onWorkflowStart === 'function') {
+          onWorkflowStart(workflow);
+        }
+      } else {
+        throw new Error('Invalid response from agent');
+      }
     } catch (e) {
+      console.error('Agent workflow error:', e);
       setError(e.message || 'Something went wrong');
     } finally {
       setIsProcessing(false);
