@@ -146,7 +146,7 @@ export function LoginForm() {
                 onChange={handleChange}
                 className="rounded border-gray-300"
                 disabled={isLoading}
-              />
+              />e
               <Label htmlFor="rememberMe" className="text-sm">
                 Remember me for 30 days
               </Label>
