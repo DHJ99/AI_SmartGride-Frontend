@@ -7,8 +7,8 @@ import { useThemeStore } from '@/stores/theme'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGridStore } from '@/stores/grid'
 import { useNavigate } from 'react-router-dom'
-import NotificationPanel from '@/components/layout/NotificationPanel'
-import logSecurityEvent from '@/utils/securityLogger'
+import { NotificationPanel } from '@/components/layout/NotificationPanel'
+import { logSecurityEvent } from '@/utils/securityLogger'
 
 export function Header() {
   const { theme, setTheme } = useThemeStore()
@@ -132,7 +132,7 @@ export function Header() {
                 <Avatar className="w-6 h-6">
                   <AvatarImage src={user?.avatar} />
                   <AvatarFallback className="text-xs">
-                    {user?.name?.split(' ').map(n => n[0]).join('') || 'U'}
+                    {user?.name?.split(' ').map((n: string) => n[0]).join('') || 'U'}
                   </AvatarFallback>
                 </Avatar>
                 <span className="text-sm font-medium hidden md:block">{user?.name}</span>
@@ -146,7 +146,7 @@ export function Header() {
                       <Avatar className="w-10 h-10">
                         <AvatarImage src={user?.avatar} />
                         <AvatarFallback>
-                          {user?.name?.split(' ').map(n => n[0]).join('') || 'U'}
+                          {user?.name?.split(' ').map((n: string) => n[0]).join('') || 'U'}
                         </AvatarFallback>
                       </Avatar>
                       <div>
