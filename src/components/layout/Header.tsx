@@ -7,8 +7,8 @@ import { useThemeStore } from '@/stores/theme'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGridStore } from '@/stores/grid'
 import { useNavigate } from 'react-router-dom'
-import { NotificationPanel } from '@/components/layout/NotificationPanel'
-import { logSecurityEvent } from '@/utils/securityLogger'
+import NotificationPanel from '@/components/layout/NotificationPanel'
+import logSecurityEvent from '@/utils/securityLogger'
 
 export function Header() {
   const { theme, setTheme } = useThemeStore()
